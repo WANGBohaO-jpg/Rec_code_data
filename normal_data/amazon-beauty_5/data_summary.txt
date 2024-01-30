@@ -1,0 +1,10 @@
+Unique users in train set: 22363
+Unique items in train set: 12098
+Unique users in test set: 22355
+Unique items in test set: 9639
+Total unique users: 22363
+Total unique items: 12098
+Total interactions in train set: 159912
+Total interactions in test set: 38575
+Total interactions: 198487
+K-core: 5

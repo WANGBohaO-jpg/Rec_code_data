@@ -1,0 +1,30 @@
+# nnictl create --config config.yaml --port 8081
+search_space:
+  weight_decay:
+    _type: choice
+    _value: [ 0.1, 0.01, 0.001, 0.0001, 0.00001, 0 ]
+  lr:
+    _type: choice
+    _value: [ 0.01 ]
+  ssm_temp:
+    _type: choice
+    _value: [ 0.01, 0.02, 0.03, 0.04, 0.05, 0.06, 0.07, 0.08, 0.9, 0.1 ]
+
+trial_command: python main.py --model=mf --dataset='gowalla' --lr 0.01 --weight_decay 0 --ssm_temp 0.09 --trainbatch 4096 --num_negtive_items 1024 --cuda 0
+trial_code_directory: .
+
+trialGpuNumber: 1
+
+trial_concurrency: 4
+max_trial_number: 200
+
+tuner:
+  name: TPE
+  class_args:
+    optimize_mode: maximize
+
+training_service:
+  platform: local
+  maxTrialNumberPerGpu: 1
+  useActiveGpu: true
+  gpuIndices: [0,1,2,3]
