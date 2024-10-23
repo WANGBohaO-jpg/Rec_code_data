@@ -25,13 +25,8 @@ class BasicModel(nn.Module):
         pos_logits = torch.exp(y_pred[:, 0] / temp)
         neg_logits = torch.exp(y_pred[:, 1:] / temp)
         neg_logits = torch.sum(neg_logits, dim=-1)
-        loss = -torch.log(pos_logits).mean() + self.config["neg_coefficient"] * neg_logits.mean()
-
-        # neg_tensor = y_pred[:, 1:].clone().detach()
-        # weight = torch.exp(neg_tensor / temp)
-        # weight = weight / torch.sum(weight, dim=1, keepdim=True)
-        # neg_logits = weight / temp * y_pred[:, 1:]
-
+        loss = -torch.log(pos_logits).mean() + torch.log(neg_logits).mean()
+        
         return loss
 
     def getUsersRating(self, users):
