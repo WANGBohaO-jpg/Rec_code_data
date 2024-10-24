@@ -1,73 +1,58 @@
 """
 Design training and test process
 """
-import random
 import time
-from tqdm import tqdm
-import world
+from tools import world, utils
 import numpy as np
 import torch
-import utils
-from utils import timer
-import model
 import multiprocessing
-import pdb
-import dataloader
+from dataset import dataloader
+from tools.world import cprint
 
 
 CORES = multiprocessing.cpu_count() // 2  # 4090服务器上有256个核心
 
 
-def Train_original(dataset: dataloader.Loader, recommend_model, loss_class, epoch, config, w=None):
+
+def Train(dataset: dataloader.Loader, recommend_model, loss_class, epoch, config, w=None):
     Recmodel = recommend_model
     Recmodel.train()
-    loss: utils.LossFunc = loss_class
+    loss = loss_class
 
     start = time.time()
-    if config["full_batch"]:
-        S = utils.UniformSample_original(dataset, config["num_negtive_items"])
-        users, posItems, negItems = S
-        users, posItems, negItems = utils.shuffle(users, posItems, negItems)
-    else:
-        users, posItems = dataset.trainUser_tensor, dataset.trainItem_tensor
-        users, posItems = utils.shuffle(users, posItems)
 
-    if config["full_batch"]:
-        users = users.cuda(non_blocking=True)
-        posItems = posItems.cuda(non_blocking=True)
-        negItems = negItems.cuda(non_blocking=True)
+    users, posItems = dataset.trainUser_tensor, dataset.trainItem_tensor
+    users, posItems = utils.shuffle(users, posItems)
 
-        batch_size = len(users)
-        aver_loss = loss.step(users, posItems, negItems, epoch)
-        w.add_scalar(f"BPRLoss/BPR", aver_loss, epoch)
-    else:
-        batch_size = config["train_batch"]
-        total_batch = len(users) // batch_size + 1
-        aver_loss = 0.0
 
-        iter_num = epoch * total_batch
-        for batch_id, (batch_users, batch_pos) in enumerate(utils.minibatch(users, posItems, batch_size=batch_size)):
-            batch_users = batch_users.cuda(non_blocking=True)
-            batch_pos = batch_pos.cuda(non_blocking=True)
+    batch_size = config["train_batch"]
+    total_batch = len(users) // batch_size + 1
+    aver_loss = 0.0
 
-            batch_not_interaction_tensor = (~dataset.interaction_tensor[batch_users]).float()
-            batch_neg = torch.multinomial(batch_not_interaction_tensor, config["num_negtive_items"], replacement=True)
-            
-            cri = loss.step(batch_users, batch_pos, batch_neg, epoch, batch_id)
-            w.add_scalar("Loss", cri, iter_num + batch_id)
-            aver_loss += cri
-            # iter_num += 1
+    iter_num = epoch * total_batch
+    for batch_id, (batch_users, batch_pos) in enumerate(utils.minibatch(users, posItems, batch_size=batch_size)):
+        batch_users = batch_users.cuda(non_blocking=True)
+        batch_pos = batch_pos.cuda(non_blocking=True)
 
-        aver_loss = aver_loss / total_batch
+        batch_not_interaction_tensor = (~dataset.interaction_tensor[batch_users]).float()
+        batch_neg = torch.multinomial(batch_not_interaction_tensor, config["num_negative_items"], replacement=True)
+        cri = loss.step(batch_users, batch_pos, batch_neg)
+        w.add_scalar("Loss", cri, iter_num + batch_id)
+        aver_loss += cri
+
+
+    aver_loss = aver_loss / total_batch
         # w.add_scalar("Loss", aver_loss, epoch)
     time_one_epoch = int(time.time() - start)
     return f"Loss{aver_loss:.3f}-Time{time_one_epoch}"
 
 
+
+
+
 def test_one_batch(X):
     sorted_items = X[0].numpy()
     groundTrue = X[1]
-
     r = utils.getLabel(groundTrue, sorted_items)  # 一个包含batch个元素的list，每个元素是一个np数组
     pre, recall, ndcg, hitratio = [], [], [], []
     for k in world.topks:
@@ -87,7 +72,7 @@ def test_one_batch(X):
 def Test(dataset, Recmodel, epoch, w=None, multicore=0):
     u_batch_size = world.config["test_u_batch_size"]  # 默认是100，多少个user一起test
 
-    dataset: utils.BasicDataset
+    # dataset: utils.BasicDataset
     testDict: dict = dataset.testDict
     # Recmodel: model.LightGCN
 
@@ -156,3 +141,43 @@ def Test(dataset, Recmodel, epoch, w=None, multicore=0):
             pool.close()
 
         return results
+
+
+
+
+
+#  ============== The AdvInfoNCE Trainer ===============
+def TrainAdvInfoNCE(dataset: dataloader.Loader, recommend_model, loss_class, epoch, config, w=None, adv_training_flag = False):
+    Recmodel = recommend_model
+    Recmodel.train()
+    loss = loss_class
+
+    start = time.time()
+
+    users, posItems = dataset.trainUser_tensor, dataset.trainItem_tensor
+    users, posItems = utils.shuffle(users, posItems)
+
+
+    batch_size = config["train_batch"]
+    total_batch = len(users) // batch_size + 1
+    aver_loss = 0.0
+
+    iter_num = epoch * total_batch
+
+    for batch_id, (batch_users, batch_pos) in enumerate(utils.minibatch(users, posItems, batch_size=batch_size)):
+        batch_users = batch_users.cuda(non_blocking=True)
+        batch_pos = batch_pos.cuda(non_blocking=True)
+
+        batch_not_interaction_tensor = (~dataset.interaction_tensor[batch_users]).float()
+        batch_neg = torch.multinomial(batch_not_interaction_tensor, config["num_negative_items"], replacement=True)
+        cri = loss.step(batch_users, batch_pos, batch_neg,epoch, adv_training_flag = adv_training_flag)
+        w.add_scalar("Loss", cri, iter_num + batch_id)
+        aver_loss += cri
+
+
+
+
+    aver_loss = aver_loss / total_batch
+        # w.add_scalar("Loss", aver_loss, epoch)
+    time_one_epoch = int(time.time() - start)
+    return f"Loss{aver_loss:.3f}-Time{time_one_epoch}"

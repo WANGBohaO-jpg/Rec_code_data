@@ -10,8 +10,8 @@ search_space:
     _type: choice
     _value: [ 0.01, 0.02, 0.03, 0.04, 0.05, 0.06, 0.07, 0.08, 0.9, 0.1 ]
 
-trial_command: python main.py --model=mf --dataset='gowalla' --lr 0.01 --weight_decay 0 --ssm_temp 0.09 --trainbatch 4096 --num_negtive_items 1024 --cuda 0
-trial_code_directory: .
+trial_command: python main.py --model=mf --dataset='amazon-beauty_5' --lr 0.01 --weight_decay 0 --ssm_temp 0.1 --trainbatch 1024 --num_negative_items 1024 --cuda 0
+trial_code_directory: ..
 
 trialGpuNumber: 1
 

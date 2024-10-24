@@ -16,8 +16,8 @@ def parse_args():
     parser.add_argument("--comment", type=str, default="", help="comment of running")
     parser.add_argument("--epochs", type=int, default=2001, help="total number of epochs")
     parser.add_argument("--multicore", type=int, default=0, help="whether we use multiprocessing or not in test")
-    parser.add_argument("--seed", type=int, default=2023, help="random seed")
-    parser.add_argument("--recdim", type=int, default=32, help="the embedding size of lightGCN")
+    parser.add_argument("--seed", type=int, default=2024, help="random seed")
+    parser.add_argument("--recdim", type=int, default=64, help="the embedding size of lightGCN")
     parser.add_argument("--model", type=str, default="mf", help="rec-model, support [mf, lgn]")
     parser.add_argument("--loss", type=str, default="softmax", help="loss function, support [bpr, softmax]")
     parser.add_argument("--norm_emb", type=int, default=1, help="whether normalize embeddings")
@@ -27,7 +27,7 @@ def parse_args():
 
     # SSM Loss
     parser.add_argument("--ssm_temp", type=float, default=0.1)
-    parser.add_argument("--num_negtive_items", type=int, default=64)
+    parser.add_argument("--num_negative_items", type=int, default=64)
     parser.add_argument("--neg_coefficient", type=int, default=1)
 
     # LightGCN
@@ -41,6 +41,7 @@ def parse_args():
     parser.add_argument("--cl_temp", type=float, default=0.2)
     parser.add_argument("--cl_layer", type=int, default=0)
     parser.add_argument("--q", type=int, default=5)
+
 
     return parser.parse_args()
 
@@ -65,7 +66,7 @@ config = {
     "weight_decay": args.weight_decay,
     "norm_emb": args.norm_emb,
     "full_batch": args.full_batch,
-    "num_negtive_items": args.num_negtive_items,
+    "num_negative_items": args.num_negative_items,
     
     "cuda": args.cuda,
     "ssm_temp": args.ssm_temp,
