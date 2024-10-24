@@ -1,36 +1,8 @@
-import world
-import torch
-from torch import nn, optim
 import numpy as np
-from torch import log
-from time import time
+import torch
 from sklearn.metrics import roc_auc_score
 
-
-class LossFunc:
-    def __init__(self, recmodel, config: dict, dataset=None):
-        self.model = recmodel
-        self.weight_decay = config["weight_decay"]
-        self.lr = config["lr"]
-        self.opt = optim.Adam(recmodel.parameters(), lr=self.lr, weight_decay=self.weight_decay)
-        
-        self.dataset = dataset
-
-    def step(self, users, pos, neg, epoch: int = None, batch_id: int = None):
-        if world.config["loss"] == "bpr":
-            loss = self.model.bpr_loss(users, pos, neg)
-        elif world.config["loss"] == "softmax":
-            loss = self.model.ssm_loss(users, pos, neg, epoch, batch_id)
-        elif world.config["loss"] == "bce":
-            loss = self.model.bce_loss(users, pos, neg)
-        else:
-            raise NotImplementedError
-        
-        self.opt.zero_grad()
-        loss.backward()
-        self.opt.step()
-    
-        return loss.cpu().item()
+from tools import world
 
 
 def UniformSample_original(dataset, num_neg):
@@ -68,10 +40,10 @@ def minibatch(*tensors, **kwargs):
     if len(tensors) == 1:
         tensor = tensors[0]
         for i in range(0, len(tensor), batch_size):
-            yield tensor[i : i + batch_size]
+            yield tensor[i: i + batch_size]
     else:
         for i in range(0, len(tensors[0]), batch_size):
-            yield tuple(x[i : i + batch_size] for x in tensors)
+            yield tuple(x[i: i + batch_size] for x in tensors)
 
 
 def shuffle(*arrays, **kwargs):
@@ -223,7 +195,6 @@ def AUC(all_item_scores, dataset, test_data):
     test_item_scores = all_item_scores[all_item_scores >= 0]
     return roc_auc_score(r, test_item_scores)
 
-
 def getLabel(test_data, pred_data):
     r = []
     for i in range(len(test_data)):
@@ -233,7 +204,3 @@ def getLabel(test_data, pred_data):
         pred = np.array(pred).astype("float")
         r.append(pred)
     return np.array(r).astype("float")
-
-
-# ====================end Metrics=============================
-# =========================================================

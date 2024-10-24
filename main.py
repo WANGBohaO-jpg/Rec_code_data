@@ -1,27 +1,23 @@
 import os
 
+import model
+import optimizer
+from dataset import dataloader
+
 os.environ["MKL_NUM_THREADS"] = "10"
 os.environ['OPENBLAS_NUM_THREADS'] = '10'
 os.environ['OMP_NUM_THREADS'] = '10'
 
-from matplotlib import pyplot as plt
-import torch.nn.functional as F
-
-import dataloader
-import model
 from pprint import pprint
 
-import world
-import utils
-from world import cprint
+from tools import world, procedure, utils
+from tools.world import cprint
 import torch
 from tensorboardX import SummaryWriter
 import time
-import procedure
 from os.path import join
 import nni
-from logger import CompleteLogger
-
+from tools.logger import CompleteLogger
 
 if not "NNI_PLATFORM" in os.environ:
     os.environ["CUDA_VISIBLE_DEVICES"] = world.config["cuda"]
@@ -33,7 +29,7 @@ else:
 utils.set_seed(world.seed)
 print(">>SEED:", world.seed)
 # ==============================
-
+cprint("ValidTopks" + str(world.topks))
 
 dataroot = os.path.join("./normal_data", world.config["dataset"])
 logroot = os.path.join("./log", world.config["dataset"])
@@ -41,21 +37,23 @@ logroot = os.path.join("./log", world.config["dataset"])
 dataset = dataloader.Loader(path=dataroot)
 
 MODELS = {
-    "lgn": model.LightGCN,
-    "mf": model.PureMF,
-    "XSimGCL": model.XSimGCL,
-    "SimGCL": model.SimGCL,
-    "LightGCL": model.LightGCL,
+    "mf": model.model_MF.MFModel,
+    "lgn": model.model_LightGCN.LightGCNModel,
+    "XSimGCL": model.model_XSimGCL.XSimGCLModel
+}
+LOSSES = {
+    'softmax': optimizer.optim_Softmax.SoftmaxOptimizer,
+    "bpr": optimizer.optim_BPR.BPROptimizer
 }
 
-Recmodel = MODELS[world.model_name](world.config, dataset).cuda()
-loss_func = utils.LossFunc(Recmodel, world.config, dataset)
-
-# world.config['ssm_temp2'] = world.config['ssm_temp']
-
-if world.config["loss"] == "bpr" or world.config["loss"] == "bce":
+if world.config["loss"] == "bpr" or world.config["loss"] == "bce" or world.config["loss"] == "rmse":
     world.config["norm_emb"] = 0
-    world.config["num_negtive_items"] = 1
+    world.config["num_negative_items"] = 1
+
+Recmodel = MODELS[world.model_name](config=world.config, num_users=dataset.n_users, num_items=dataset.m_item,
+                                    Graph=dataset.Graph).cuda()
+loss_func = LOSSES[world.config["loss"]](model=Recmodel, config=world.config)
+
 
 if "NNI_PLATFORM" in os.environ:
     save_dir = os.path.join(os.environ["NNI_OUTPUT_DIR"], "tensorboard")
@@ -104,48 +102,62 @@ best_recall, best_ndcg, best_hit, best_precision = (
 patience = 0
 start_total = time.time()
 
+best_Recmodel = MODELS[world.model_name](config=world.config, num_users=dataset.n_users, num_items=dataset.m_item,
+                                         Graph=dataset.Graph).cuda()
+
 for epoch in range(world.TRAIN_epochs):
     start = time.time()
     if epoch % 5 == 0 and epoch != 0:
-        cprint("[TEST]")
-        test_res = procedure.Test(dataset, Recmodel, epoch, w, world.config["multicore"])
-        test_recall, test_ndcg, test_hit, test_precision = (
-            test_res["recall"],
-            test_res["ndcg"],
-            test_res["hitratio"],
-            test_res["precision"],
+
+        valid_res = procedure.Test(dataset, Recmodel, epoch, w, world.config["multicore"])
+        valid_recall, valid_ndcg, valid_hit, valid_precision = (
+            valid_res["recall"],
+            valid_res["ndcg"],
+            valid_res["hitratio"],
+            valid_res["precision"],
         )
         if "NNI_PLATFORM" in os.environ:
             metric = {
-                "default": test_ndcg[0],
-                "recall": test_recall[0],
-                "hit": test_hit[0],
-                "precision": test_precision[0],
+                "ndcg": valid_ndcg[0],
+                "default": valid_recall[0],
+                "hit": valid_hit[0],
+                "precision": valid_precision[0],
             }
             nni.report_intermediate_result(metric)
 
-        if test_ndcg[0] > best_ndcg[0] + 0.0001:
+        if valid_recall[0] > best_recall[0] + 0.0001:
             patience = 0
             if "NNI_PLATFORM" not in os.environ:
-                torch.save(Recmodel.state_dict(), os.path.join(save_dir, "best_model.pth"))
+                loss_func.save(os.path.join(save_dir, "best_model.pth"))
+            best_Recmodel.load_state_dict(Recmodel.state_dict())
         else:
             patience += 1
             print("Patience: {}/5".format(patience))
             if patience >= 5:
                 print("Early stop!")
+                cprint('[Test]')
+                test_res = procedure.Test(dataset, best_Recmodel, epoch, w, world.config["multicore"])
+                print(test_res)
                 break
 
         for i in range(len(world.topks)):
             best_recall[i], best_ndcg[i], best_hit[i], best_precision[i] = (
-                max(best_recall[i], test_recall[i]),
-                max(best_ndcg[i], test_ndcg[i]),
-                max(best_hit[i], test_hit[i]),
-                max(best_precision[i], test_precision[i]),
+                max(best_recall[i], valid_recall[i]),
+                max(best_ndcg[i], valid_ndcg[i]),
+                max(best_hit[i], valid_hit[i]),
+                max(best_precision[i], valid_precision[i]),
             )
-        print(test_res)
+        print(valid_res)
 
-    output_information = procedure.Train_original(dataset, Recmodel, loss_func, epoch, world.config, w=w)
-    print(f"EPOCH[{epoch+1}/{world.TRAIN_epochs}] {output_information}")
+    output_information = procedure.Train(
+        dataset = dataset,
+        recommend_model = Recmodel,
+        loss_class = loss_func,
+        epoch = epoch,
+        config = world.config,
+        w=w
+    )
+    print(f"EPOCH[{epoch + 1}/{world.TRAIN_epochs}] {output_information}")
 
 print(
     "Best_hit: {}, Best_ndcg: {}, Best_precision: {}, Best_recall: {}".format(
@@ -153,8 +165,8 @@ print(
     )
 )
 if "NNI_PLATFORM" in os.environ:
-    metric = {"default": best_ndcg[0], "recall": best_recall[0], "hit": best_hit[0], "precision": best_precision[0]}
+    metric = {"ndcg": best_ndcg[0], "default": best_recall[0], "hit": best_hit[0], "precision": best_precision[0]}
     nni.report_final_result(metric)
-    
+
 print("Total time:{}".format(time.time() - start_total))
 w.close()
